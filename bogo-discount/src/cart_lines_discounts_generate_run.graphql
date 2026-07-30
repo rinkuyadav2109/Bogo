@@ -1,0 +1,35 @@
+query CartInput($buyCollectionIds: [ID!], $getCollectionIds: [ID!]) {
+  cart {
+    lines {
+      id
+      quantity
+      cost {
+        amountPerQuantity {
+          amount
+        }
+      }
+      sellingPlanAllocation {
+        sellingPlan {
+          id
+        }
+      }
+      merchandise {
+        ... on ProductVariant {
+          id
+          product {
+            id
+            inBuyCollections: inAnyCollection(ids: $buyCollectionIds)
+            inGetCollections: inAnyCollection(ids: $getCollectionIds)
+          }
+        }
+      }
+    }
+  }
+  discount {
+    discountClasses
+    metafield(namespace: "$app", key: "function-configuration") {
+      value
+    }
+  }
+  triggeringDiscountCode
+}

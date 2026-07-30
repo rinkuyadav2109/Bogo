@@ -1,0 +1,98 @@
+{
+  "payload": {
+    "export": "cart-lines-discounts-generate-run",
+    "target": "cart.lines.discounts.generate.run",
+    "input": {
+      "cart": {
+        "lines": [
+          {
+            "id": "gid://shopify/CartLine/buy",
+            "quantity": 1,
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "200.0"
+              }
+            },
+            "sellingPlanAllocation": null,
+            "merchandise": {
+              "id": "gid://shopify/ProductVariant/buy",
+              "product": {
+                "id": "gid://shopify/Product/buy",
+                "inBuyCollections": false,
+                "inGetCollections": false
+              }
+            }
+          },
+          {
+            "id": "gid://shopify/CartLine/get",
+            "quantity": 1,
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "100.0"
+              }
+            },
+            "sellingPlanAllocation": null,
+            "merchandise": {
+              "id": "gid://shopify/ProductVariant/get",
+              "product": {
+                "id": "gid://shopify/Product/get",
+                "inBuyCollections": false,
+                "inGetCollections": false
+              }
+            }
+          }
+        ]
+      },
+      "discount": {
+        "discountClasses": ["PRODUCT"],
+        "metafield": {
+          "value": "{\"buyProductIds\":[\"gid://shopify/Product/buy\"],\"getProductIds\":[\"gid://shopify/Product/get\"],\"floorPrice\":0.5,\"displayName\":\"Bogo25\"}"
+        }
+      },
+      "triggeringDiscountCode": null
+    },
+    "output": {
+      "operations": [
+        {
+          "productDiscountsAdd": {
+            "candidates": [
+              {
+                "message": "Bogo25",
+                "targets": [
+                  {
+                    "cartLine": {
+                      "id": "gid://shopify/CartLine/get",
+                      "quantity": 1
+                    }
+                  }
+                ],
+                "value": {
+                  "fixedAmount": {
+                    "amount": "99.50",
+                    "appliesToEachItem": true
+                  }
+                }
+              },
+              {
+                "targets": [
+                  {
+                    "cartLine": {
+                      "id": "gid://shopify/CartLine/buy"
+                    }
+                  }
+                ],
+                "value": {
+                  "fixedAmount": {
+                    "amount": "0.50",
+                    "appliesToEachItem": false
+                  }
+                }
+              }
+            ],
+            "selectionStrategy": "ALL"
+          }
+        }
+      ]
+    }
+  }
+}
