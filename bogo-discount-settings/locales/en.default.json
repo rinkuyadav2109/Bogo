@@ -1,0 +1,66 @@
+{
+  "name": "BXGY discount settings",
+  "description": "Configure Buy X Get Y like native Shopify BOGO (free reward with minimum line price)",
+  "title": "Buy X get Y",
+  "loading": "Loading...",
+  "displayName": {
+    "label": "Name shown in cart and checkout",
+    "help": "Use the same value as the discount title above (for example Bogo25). Automatic discounts show this name on the cart and checkout.",
+    "error": "Specify a name to show customers in cart and checkout."
+  },
+  "customerBuys": {
+    "heading": "Customer buys",
+    "quantity": "Quantity",
+    "quantityHelp": "Minimum quantity of items the customer must buy.",
+    "quantityError": "Specify a quantity of products the customer must buy.",
+    "productsError": "Specify a product the customer must buy.",
+    "collectionsError": "Specify a collection the customer must buy."
+  },
+  "customerGets": {
+    "heading": "Customer gets",
+    "help": "Customers must add the quantity of items specified below to their cart.",
+    "quantity": "Quantity",
+    "quantityHelp": "Quantity of reward items per completed buy set.",
+    "quantityError": "Specify a quantity of products the customer will get.",
+    "productsError": "Specify a product the customer will get.",
+    "collectionsError": "Specify a collection the customer will get."
+  },
+  "itemType": {
+    "anyItemsFrom": "Any items from",
+    "products": "Specific products",
+    "collections": "Specific collections"
+  },
+  "purchaseType": {
+    "label": "Purchase type",
+    "oneTime": "One-time purchase",
+    "subscription": "Subscription",
+    "both": "Both"
+  },
+  "resources": {
+    "searchProducts": "Search products",
+    "searchCollections": "Search collections",
+    "browse": "Browse",
+    "edit": "Edit",
+    "productsEmpty": "No products selected.",
+    "collectionsEmpty": "No collections selected."
+  },
+  "discountValue": {
+    "heading": "At a discounted value",
+    "free": "Free",
+    "freeHelp": "Reward items are treated as free in the order total using the minimum line price split."
+  },
+  "maxUses": {
+    "label": "Set a maximum number of uses per order",
+    "quantity": "Uses per order",
+    "help": "Limits how many Buy X Get Y sets apply in one cart. Default is 1 so Buy 1 Get 1 only rewards once even if the cart has more matching items."
+  },
+  "floorPrice": {
+    "label": "Minimum line price",
+    "help": "Reward lines are charged this amount; the same amount is discounted from a buy line (default 0.50)."
+  },
+  "validation": {
+    "banner": "There are {{count}} errors with this discount:",
+    "bannerOne": "There is 1 error with this discount:"
+  },
+  "error": "Unable to save discount settings. Ensure the discount uses the Product discount class and try again."
+}
