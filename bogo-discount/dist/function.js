@@ -41,13 +41,13 @@ function toPurchaseType(value) {
 function parseBogoConfig(metafieldValue) {
   try {
     const parsed = JSON.parse(metafieldValue || "{}");
-    const maxUsesPerOrder = !Object.prototype.hasOwnProperty.call(
-      parsed,
-      "maxUsesPerOrder"
-    ) ? 1 : parsed.maxUsesPerOrder === null || parsed.maxUsesPerOrder === "" ? null : toPositiveInt(parsed.maxUsesPerOrder, 1);
+    const maxUsesRaw = parsed.maxUsesPerOrder;
+    const maxUsesPerOrder = maxUsesRaw === null || maxUsesRaw === void 0 || maxUsesRaw === "" ? null : toPositiveInt(maxUsesRaw, null);
     return {
       buyProductIds: new Set(parsed.buyProductIds ?? []),
       getProductIds: new Set(parsed.getProductIds ?? []),
+      buyVariantIds: new Set(parsed.buyVariantIds ?? []),
+      getVariantIds: new Set(parsed.getVariantIds ?? []),
       buyCollectionIds: parsed.buyCollectionIds ?? [],
       getCollectionIds: parsed.getCollectionIds ?? [],
       buyItemType: toItemType(parsed.buyItemType),
@@ -64,6 +64,8 @@ function parseBogoConfig(metafieldValue) {
     return {
       buyProductIds: /* @__PURE__ */ new Set(),
       getProductIds: /* @__PURE__ */ new Set(),
+      buyVariantIds: /* @__PURE__ */ new Set(),
+      getVariantIds: /* @__PURE__ */ new Set(),
       buyCollectionIds: [],
       getCollectionIds: [],
       buyItemType: ITEM_TYPE_PRODUCTS,
@@ -74,7 +76,7 @@ function parseBogoConfig(metafieldValue) {
       getQuantity: 1,
       floorPrice: DEFAULT_FLOOR_PRICE,
       displayName: "",
-      maxUsesPerOrder: 1
+      maxUsesPerOrder: null
     };
   }
 }
@@ -102,12 +104,16 @@ function lineMatchesPurchaseType(line, purchaseType) {
   }
   return !isSubscription;
 }
-function productMatchesSelection(product, itemType, productIds, side) {
+function merchandiseMatchesSelection(merchandise, itemType, productIds, variantIds, side) {
+  const product = merchandise?.product;
   if (!product?.id) {
     return false;
   }
   if (itemType === ITEM_TYPE_COLLECTIONS) {
     return side === "buy" ? Boolean(product.inBuyCollections) : Boolean(product.inGetCollections);
+  }
+  if (variantIds.size > 0) {
+    return Boolean(merchandise?.id && variantIds.has(merchandise.id));
   }
   return productIds.has(product.id);
 }
@@ -117,8 +123,8 @@ function expandCartUnits(lines, matches, purchaseType = PURCHASE_TYPE_BOTH) {
     if (!lineMatchesPurchaseType(line, purchaseType)) {
       continue;
     }
-    const product = line.merchandise?.product;
-    if (!product || !matches(product)) {
+    const merchandise = line.merchandise;
+    if (!merchandise || !matches(merchandise)) {
       continue;
     }
     const unitPrice = Number(line.cost.amountPerQuantity.amount);
@@ -169,10 +175,7 @@ function computeQuantityAwareBogoGroups(buyUnits, getUnits, buyQuantity, getQuan
   if (sets < 1) {
     return null;
   }
-  if (buyUnits.length !== sets * safeBuyQty) {
-    return null;
-  }
-  const buyLineTotals = /* @__PURE__ */ new Map();
+  const buyLines = /* @__PURE__ */ new Map();
   const get = /* @__PURE__ */ new Map();
   const qualifyingBuyUnits = buyUnits.slice(0, sets * safeBuyQty);
   const rewardGetUnits = getUnits.slice(0, sets * safeGetQty);
@@ -185,19 +188,23 @@ function computeQuantityAwareBogoGroups(buyUnits, getUnits, buyQuantity, getQuan
     totalAbsorb,
     qualifyingBuyUnits.length
   );
-  const buyLineCents = /* @__PURE__ */ new Map();
+  const buyLineAccum = /* @__PURE__ */ new Map();
   qualifyingBuyUnits.forEach((buyUnit, index) => {
     const buyDiscount = Math.min(buyAmounts[index] ?? 0, buyUnit.unitPrice);
     const cents = Math.round(buyDiscount * 100);
-    buyLineCents.set(
-      buyUnit.lineId,
-      (buyLineCents.get(buyUnit.lineId) ?? 0) + cents
-    );
+    const current = buyLineAccum.get(buyUnit.lineId) ?? {
+      cents: 0,
+      quantity: 0
+    };
+    buyLineAccum.set(buyUnit.lineId, {
+      cents: current.cents + cents,
+      quantity: current.quantity + 1
+    });
   });
-  for (const [lineId, cents] of buyLineCents) {
-    buyLineTotals.set(lineId, cents / 100);
+  for (const [lineId, { cents, quantity }] of buyLineAccum) {
+    buyLines.set(lineId, { amount: cents / 100, quantity });
   }
-  return { buyLineTotals, get };
+  return { buyLines, get };
 }
 function groupedDiscountsToCandidates(grouped, message) {
   const candidates = [];
@@ -221,16 +228,16 @@ function groupedDiscountsToCandidates(grouped, message) {
   }
   return candidates;
 }
-function lineTotalDiscountsToCandidates(lineTotals, message) {
+function buyAbsorbDiscountsToCandidates(buyLines, message) {
   const candidates = [];
   const label = typeof message === "string" ? message.trim() : "";
-  for (const [lineId, amount] of lineTotals) {
+  for (const [lineId, { amount, quantity }] of buyLines) {
     const rounded = Number(formatDecimal(amount));
-    if (rounded <= 0) {
+    if (rounded <= 0 || quantity < 1) {
       continue;
     }
     const candidate = {
-      targets: [{ cartLine: { id: lineId } }],
+      targets: [{ cartLine: { id: lineId, quantity } }],
       value: {
         fixedAmount: {
           amount: formatDecimal(rounded),
@@ -251,27 +258,29 @@ function buildBogoDiscountCandidates(input) {
     config,
     input.triggeringDiscountCode
   );
-  const buyConfigured = config.buyItemType === ITEM_TYPE_COLLECTIONS ? config.buyCollectionIds.length > 0 : config.buyProductIds.size > 0;
-  const getConfigured = config.getItemType === ITEM_TYPE_COLLECTIONS ? config.getCollectionIds.length > 0 : config.getProductIds.size > 0;
+  const buyConfigured = config.buyItemType === ITEM_TYPE_COLLECTIONS ? config.buyCollectionIds.length > 0 : config.buyProductIds.size > 0 || config.buyVariantIds.size > 0;
+  const getConfigured = config.getItemType === ITEM_TYPE_COLLECTIONS ? config.getCollectionIds.length > 0 : config.getProductIds.size > 0 || config.getVariantIds.size > 0;
   if (!buyConfigured || !getConfigured) {
     return [];
   }
   const buyUnits = expandCartUnits(
     input.cart.lines,
-    (product) => productMatchesSelection(
-      product,
+    (merchandise) => merchandiseMatchesSelection(
+      merchandise,
       config.buyItemType,
       config.buyProductIds,
+      config.buyVariantIds,
       "buy"
     ),
     config.buyPurchaseType
   );
   const getUnits = expandCartUnits(
     input.cart.lines,
-    (product) => productMatchesSelection(
-      product,
+    (merchandise) => merchandiseMatchesSelection(
+      merchandise,
       config.getItemType,
       config.getProductIds,
+      config.getVariantIds,
       "get"
     ),
     config.getPurchaseType
@@ -292,7 +301,7 @@ function buildBogoDiscountCandidates(input) {
   }
   return [
     ...groupedDiscountsToCandidates(groups.get, message),
-    ...lineTotalDiscountsToCandidates(groups.buyLineTotals, "")
+    ...buyAbsorbDiscountsToCandidates(groups.buyLines, message)
   ];
 }
 

@@ -11,7 +11,7 @@
   "customerBuys": {
     "heading": "Customer buys",
     "quantity": "Quantity",
-    "quantityHelp": "Minimum quantity of items the customer must buy.",
+    "quantityHelp": "Minimum quantity of items the customer must buy. Extra buy items beyond completed sets stay full price.",
     "quantityError": "Specify a quantity of products the customer must buy.",
     "productsError": "Specify a product the customer must buy.",
     "collectionsError": "Specify a collection the customer must buy."
@@ -20,7 +20,7 @@
     "heading": "Customer gets",
     "help": "Customers must add the quantity of items specified below to their cart.",
     "quantity": "Quantity",
-    "quantityHelp": "Quantity of reward items per completed buy set.",
+    "quantityHelp": "Reward items discounted per completed buy set. Extra get items stay full price.",
     "quantityError": "Specify a quantity of products the customer will get.",
     "productsError": "Specify a product the customer will get.",
     "collectionsError": "Specify a collection the customer will get."
@@ -41,6 +41,7 @@
     "searchCollections": "Search collections",
     "browse": "Browse",
     "edit": "Edit",
+    "variantsSelected": "({{selected}} of {{total}} variants selected)",
     "productsEmpty": "No products selected.",
     "collectionsEmpty": "No collections selected."
   },
@@ -52,7 +53,7 @@
   "maxUses": {
     "label": "Set a maximum number of uses per order",
     "quantity": "Uses per order",
-    "help": "Limits how many Buy X Get Y sets apply in one cart. Default is 1 so Buy 1 Get 1 only rewards once even if the cart has more matching items."
+    "help": "Optional. Leave unchecked for unlimited stacking like native Buy X Get Y (Buy 2 with qty 4 = 2 sets)."
   },
   "floorPrice": {
     "label": "Minimum line price",

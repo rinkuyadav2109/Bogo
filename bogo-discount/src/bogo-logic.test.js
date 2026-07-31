@@ -23,7 +23,27 @@ describe('parseBogoConfig', () => {
     expect(config.getQuantity).toBe(1);
     expect(config.buyItemType).toBe('products');
     expect(config.buyPurchaseType).toBe('one_time');
-    expect(config.maxUsesPerOrder).toBe(1);
+    expect(config.maxUsesPerOrder).toBeNull();
+  });
+
+  test('parses explicit maxUsesPerOrder and variant ids', () => {
+    const config = parseBogoConfig(
+      JSON.stringify({
+        buyProductIds: ['gid://shopify/Product/1'],
+        getProductIds: ['gid://shopify/Product/2'],
+        buyVariantIds: ['gid://shopify/ProductVariant/1'],
+        getVariantIds: ['gid://shopify/ProductVariant/2'],
+        maxUsesPerOrder: 2,
+      }),
+    );
+
+    expect(config.maxUsesPerOrder).toBe(2);
+    expect(config.buyVariantIds.has('gid://shopify/ProductVariant/1')).toBe(
+      true,
+    );
+    expect(config.getVariantIds.has('gid://shopify/ProductVariant/2')).toBe(
+      true,
+    );
   });
 
   test('treats explicit null maxUsesPerOrder as unlimited', () => {
@@ -89,8 +109,7 @@ describe('computeQuantityAwareBogoGroups', () => {
     );
 
     expect(groups?.get.get('line-y')?.get(99.5)).toBe(1);
-    // One line-level buy absorb keeps the multi-qty line intact.
-    expect(groups?.buyLineTotals.get('line-x')).toBe(0.5);
+    expect(groups?.buyLines.get('line-x')).toEqual({amount: 0.5, quantity: 2});
   });
 
   test('keeps buy absorption exact when floor does not divide evenly', () => {
@@ -106,7 +125,7 @@ describe('computeQuantityAwareBogoGroups', () => {
       0.5,
     );
 
-    expect(groups?.buyLineTotals.get('line-x')).toBe(0.5);
+    expect(groups?.buyLines.get('line-x')).toEqual({amount: 0.5, quantity: 3});
     expect(groups?.get.get('line-y')?.get(599.5)).toBe(1);
   });
 
@@ -122,21 +141,27 @@ describe('computeQuantityAwareBogoGroups', () => {
     expect(groups).toBeNull();
   });
 
-  test('returns null when buy quantity is greater than an exact set', () => {
+  test('stacks sets and leaves leftover buy units out of absorb quantity', () => {
     const groups = computeQuantityAwareBogoGroups(
       [
         {lineId: 'line-x', unitPrice: 24.95},
         {lineId: 'line-x', unitPrice: 24.95},
         {lineId: 'line-x', unitPrice: 24.95},
+        {lineId: 'line-x', unitPrice: 24.95},
+        {lineId: 'line-x', unitPrice: 24.95},
       ],
-      [{lineId: 'line-y', unitPrice: 749.95}],
+      [
+        {lineId: 'line-y', unitPrice: 749.95},
+        {lineId: 'line-y', unitPrice: 749.95},
+      ],
       2,
       1,
       0.5,
-      1,
     );
 
-    expect(groups).toBeNull();
+    // Buy 5 / Get 2 with buyQty 2 → 2 sets; absorb on 4 buy units only.
+    expect(groups?.get.get('line-y')?.get(749.45)).toBe(2);
+    expect(groups?.buyLines.get('line-x')).toEqual({amount: 1, quantity: 4});
   });
 
   test('discounts only reward get units when get quantity is greater', () => {
@@ -156,7 +181,7 @@ describe('computeQuantityAwareBogoGroups', () => {
     );
 
     expect(groups?.get.get('line-y')?.get(749.45)).toBe(1);
-    expect(groups?.buyLineTotals.get('line-x')).toBe(0.5);
+    expect(groups?.buyLines.get('line-x')).toEqual({amount: 0.5, quantity: 2});
   });
 });
 
@@ -197,7 +222,7 @@ describe('buildBogoDiscountCandidates', () => {
 
     expect(candidates).toHaveLength(2);
     expect(candidates[0].message).toBe('Bogo25');
-    expect(candidates[1].message).toBeUndefined();
+    expect(candidates[1].message).toBe('Bogo25');
     expect(candidates[0].value.fixedAmount.amount).toBe('99.50');
     expect(candidates[1].value.fixedAmount.amount).toBe('0.50');
   });
@@ -238,16 +263,16 @@ describe('buildBogoDiscountCandidates', () => {
     });
 
     expect(candidates[0].message).toBe('BOGO23');
-    expect(candidates[1].message).toBeUndefined();
+    expect(candidates[1].message).toBe('BOGO23');
   });
 
-  test('caps applications with maxUsesPerOrder on an exact set', () => {
+  test('caps applications with maxUsesPerOrder', () => {
     const candidates = buildBogoDiscountCandidates({
       cart: {
         lines: [
           {
             id: 'gid://shopify/CartLine/buy',
-            quantity: 1,
+            quantity: 4,
             cost: {amountPerQuantity: {amount: '24.95'}},
             merchandise: {
               product: {id: 'gid://shopify/Product/buy'},
@@ -255,7 +280,7 @@ describe('buildBogoDiscountCandidates', () => {
           },
           {
             id: 'gid://shopify/CartLine/get',
-            quantity: 1,
+            quantity: 4,
             cost: {amountPerQuantity: {amount: '600.0'}},
             merchandise: {
               product: {id: 'gid://shopify/Product/get'},
@@ -282,18 +307,23 @@ describe('buildBogoDiscountCandidates', () => {
       candidate =>
         candidate.targets[0].cartLine.id === 'gid://shopify/CartLine/get',
     );
+    const buyCandidate = candidates.find(
+      candidate =>
+        candidate.targets[0].cartLine.id === 'gid://shopify/CartLine/buy',
+    );
 
     expect(getCandidate?.targets[0].cartLine.quantity).toBe(1);
+    expect(buyCandidate?.targets[0].cartLine.quantity).toBe(1);
     expect(getCandidate?.message).toBe('BOGOAUTO');
   });
 
-  test('removes discount when cart buy quantities exceed an exact maxUses set', () => {
+  test('stacks buy sets and splits leftover buy quantity like native BXGY', () => {
     const candidates = buildBogoDiscountCandidates({
       cart: {
         lines: [
           {
             id: 'gid://shopify/CartLine/buy',
-            quantity: 4,
+            quantity: 5,
             cost: {amountPerQuantity: {amount: '24.95'}},
             merchandise: {
               product: {id: 'gid://shopify/Product/buy'},
@@ -301,8 +331,8 @@ describe('buildBogoDiscountCandidates', () => {
           },
           {
             id: 'gid://shopify/CartLine/get',
-            quantity: 1,
-            cost: {amountPerQuantity: {amount: '600.0'}},
+            quantity: 2,
+            cost: {amountPerQuantity: {amount: '749.95'}},
             merchandise: {
               product: {id: 'gid://shopify/Product/get'},
             },
@@ -314,20 +344,31 @@ describe('buildBogoDiscountCandidates', () => {
           value: JSON.stringify({
             buyProductIds: ['gid://shopify/Product/buy'],
             getProductIds: ['gid://shopify/Product/get'],
-            buyQuantity: 1,
+            buyQuantity: 2,
             getQuantity: 1,
-            maxUsesPerOrder: 1,
+            maxUsesPerOrder: null,
             floorPrice: 0.5,
-            displayName: 'BOGOAUTO',
+            displayName: 'AUTO123',
           }),
         },
       },
     });
 
-    expect(candidates).toHaveLength(0);
+    const getCandidate = candidates.find(
+      candidate =>
+        candidate.targets[0].cartLine.id === 'gid://shopify/CartLine/get',
+    );
+    const buyCandidate = candidates.find(
+      candidate =>
+        candidate.targets[0].cartLine.id === 'gid://shopify/CartLine/buy',
+    );
+
+    expect(getCandidate?.targets[0].cartLine.quantity).toBe(2);
+    expect(buyCandidate?.targets[0].cartLine.quantity).toBe(4);
+    expect(buyCandidate?.value.fixedAmount.amount).toBe('1.00');
   });
 
-  test('defaults to one use per order when maxUsesPerOrder is omitted', () => {
+  test('defaults to unlimited uses when maxUsesPerOrder is omitted', () => {
     const candidates = buildBogoDiscountCandidates({
       cart: {
         lines: [
@@ -363,11 +404,15 @@ describe('buildBogoDiscountCandidates', () => {
       },
     });
 
-    // Default maxUses=1 with leftover buy units → remove discount entirely.
-    expect(candidates).toHaveLength(0);
+    const getCandidate = candidates.find(
+      candidate =>
+        candidate.targets[0].cartLine.id === 'gid://shopify/CartLine/get',
+    );
+
+    expect(getCandidate?.targets[0].cartLine.quantity).toBe(2);
   });
 
-  test('splits get line when get quantity exceeds reward with exact buy set', () => {
+  test('splits get line when get quantity exceeds reward', () => {
     const candidates = buildBogoDiscountCandidates({
       cart: {
         lines: [
@@ -414,68 +459,34 @@ describe('buildBogoDiscountCandidates', () => {
     expect(getCandidate?.message).toBe('AUTO123');
   });
 
-  test('allows exact stacking when maxUsesPerOrder is explicitly null', () => {
+  test('matches specific variant ids when configured', () => {
     const candidates = buildBogoDiscountCandidates({
       cart: {
         lines: [
           {
             id: 'gid://shopify/CartLine/buy',
-            quantity: 2,
+            quantity: 1,
             cost: {amountPerQuantity: {amount: '24.95'}},
             merchandise: {
+              id: 'gid://shopify/ProductVariant/buy-selected',
               product: {id: 'gid://shopify/Product/buy'},
             },
           },
           {
-            id: 'gid://shopify/CartLine/get',
-            quantity: 2,
-            cost: {amountPerQuantity: {amount: '600.0'}},
-            merchandise: {
-              product: {id: 'gid://shopify/Product/get'},
-            },
-          },
-        ],
-      },
-      discount: {
-        metafield: {
-          value: JSON.stringify({
-            buyProductIds: ['gid://shopify/Product/buy'],
-            getProductIds: ['gid://shopify/Product/get'],
-            buyQuantity: 1,
-            getQuantity: 1,
-            maxUsesPerOrder: null,
-            floorPrice: 0.5,
-            displayName: 'BOGOAUTO',
-          }),
-        },
-      },
-    });
-
-    const getCandidate = candidates.find(
-      candidate =>
-        candidate.targets[0].cartLine.id === 'gid://shopify/CartLine/get',
-    );
-
-    expect(getCandidate?.targets[0].cartLine.quantity).toBe(2);
-  });
-
-  test('removes discount when buy qty is greater than configured buy quantity', () => {
-    const candidates = buildBogoDiscountCandidates({
-      cart: {
-        lines: [
-          {
-            id: 'gid://shopify/CartLine/buy',
-            quantity: 3,
+            id: 'gid://shopify/CartLine/buy-other',
+            quantity: 1,
             cost: {amountPerQuantity: {amount: '24.95'}},
             merchandise: {
+              id: 'gid://shopify/ProductVariant/buy-other',
               product: {id: 'gid://shopify/Product/buy'},
             },
           },
           {
             id: 'gid://shopify/CartLine/get',
             quantity: 1,
-            cost: {amountPerQuantity: {amount: '749.95'}},
+            cost: {amountPerQuantity: {amount: '600.0'}},
             merchandise: {
+              id: 'gid://shopify/ProductVariant/get-selected',
               product: {id: 'gid://shopify/Product/get'},
             },
           },
@@ -486,17 +497,31 @@ describe('buildBogoDiscountCandidates', () => {
           value: JSON.stringify({
             buyProductIds: ['gid://shopify/Product/buy'],
             getProductIds: ['gid://shopify/Product/get'],
-            buyQuantity: 2,
+            buyVariantIds: ['gid://shopify/ProductVariant/buy-selected'],
+            getVariantIds: ['gid://shopify/ProductVariant/get-selected'],
+            buyQuantity: 1,
             getQuantity: 1,
-            maxUsesPerOrder: 1,
             floorPrice: 0.5,
-            displayName: 'AUTO123',
+            displayName: 'VAR',
           }),
         },
       },
     });
 
-    expect(candidates).toHaveLength(0);
+    expect(candidates).toHaveLength(2);
+    expect(
+      candidates.some(
+        candidate =>
+          candidate.targets[0].cartLine.id === 'gid://shopify/CartLine/buy',
+      ),
+    ).toBe(true);
+    expect(
+      candidates.some(
+        candidate =>
+          candidate.targets[0].cartLine.id ===
+          'gid://shopify/CartLine/buy-other',
+      ),
+    ).toBe(false);
   });
 
   test('does not discount when buy quantity 2 is not met', () => {
@@ -577,7 +602,7 @@ describe('buildBogoDiscountCandidates', () => {
         candidate.targets[0].cartLine.id === 'gid://shopify/CartLine/buy',
     );
 
-    expect(buyCandidate?.targets[0].cartLine.quantity).toBeUndefined();
+    expect(buyCandidate?.targets[0].cartLine.quantity).toBe(2);
     expect(buyCandidate?.value.fixedAmount.amount).toBe('0.50');
     expect(buyCandidate?.value.fixedAmount.appliesToEachItem).toBe(false);
   });
@@ -624,6 +649,7 @@ describe('buildBogoDiscountCandidates', () => {
     );
 
     expect(buyCandidates).toHaveLength(1);
+    expect(buyCandidates[0].targets[0].cartLine.quantity).toBe(3);
     expect(buyCandidates[0].value.fixedAmount.amount).toBe('0.50');
     expect(buyCandidates[0].value.fixedAmount.appliesToEachItem).toBe(false);
   });

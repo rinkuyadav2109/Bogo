@@ -12,41 +12,94 @@ export default async () => {
   render(<App />, document.body);
 };
 
-function ResourceList({items, itemType, onEdit, onRemove, emptyLabel, i18n}) {
+function ResourceList({
+  items,
+  itemType,
+  onEdit,
+  onRemove,
+  emptyLabel,
+  i18n,
+}) {
   if (items.length === 0) {
     return <s-text tone="subdued">{emptyLabel}</s-text>;
   }
 
-  const adminPath =
-    itemType === ITEM_TYPE_COLLECTIONS ? "collections" : "products";
+  const isCollections = itemType === ITEM_TYPE_COLLECTIONS;
+  const adminPath = isCollections ? "collections" : "products";
 
-  return items.map(item => (
-    <s-stack
-      direction="inline"
-      alignItems="center"
-      justifyContent="space-between"
-      key={item.id}
-    >
-      <s-link
-        href={`shopify://admin/${adminPath}/${item.id.split("/").pop()}`}
-        target="_blank"
+  return items.map(item => {
+    const totalVariants = Number(item.totalVariants) || 0;
+    const selectedVariants = Array.isArray(item.variants) ? item.variants : [];
+    const selectedCount = selectedVariants.length;
+    const showVariantEdit = !isCollections && totalVariants > 1;
+    const imageSrc =
+      item.images?.[0]?.originalSrc ||
+      item.images?.[0]?.url ||
+      selectedVariants[0]?.image?.originalSrc ||
+      selectedVariants[0]?.image?.url ||
+      "";
+    const priceLabel =
+      selectedVariants[0]?.price ||
+      item.price ||
+      selectedVariants[0]?.displayName ||
+      "";
+
+    return (
+      <s-stack
+        direction="inline"
+        alignItems="center"
+        justifyContent="space-between"
+        gap="base"
+        key={item.id}
       >
-        {item.title}
-      </s-link>
-      <s-stack direction="inline" gap="small-200" alignItems="center">
-        <s-button variant="tertiary" onClick={onEdit}>
-          {i18n.translate("resources.edit")}
-        </s-button>
-        <s-button
-          variant="tertiary"
-          onClick={() => onRemove(item.id)}
-          accessibilityLabel="Remove"
-        >
-          <s-icon type="x-circle" />
-        </s-button>
+        <s-stack direction="inline" gap="base" alignItems="center">
+          {imageSrc ? (
+            <s-box
+              border="base"
+              borderRadius="base"
+              overflow="hidden"
+              inlineSize="40px"
+              blockSize="40px"
+            >
+              <s-image src={imageSrc} alt="" aspectRatio="1/1" objectFit="cover" />
+            </s-box>
+          ) : null}
+          <s-stack gap="none">
+            <s-link
+              href={`shopify://admin/${adminPath}/${item.id.split("/").pop()}`}
+              target="_blank"
+            >
+              {item.title}
+            </s-link>
+            {showVariantEdit ? (
+              <s-text tone="subdued">
+                {i18n.translate("resources.variantsSelected", {
+                  selected: String(selectedCount),
+                  total: String(totalVariants),
+                })}
+              </s-text>
+            ) : !isCollections && priceLabel ? (
+              <s-text tone="subdued">{String(priceLabel)}</s-text>
+            ) : null}
+          </s-stack>
+        </s-stack>
+        <s-stack direction="inline" gap="small-200" alignItems="center">
+          {showVariantEdit ? (
+            <s-button variant="tertiary" onClick={() => onEdit(item)}>
+              {i18n.translate("resources.edit")}
+            </s-button>
+          ) : null}
+          <s-button
+            variant="tertiary"
+            onClick={() => onRemove(item.id)}
+            accessibilityLabel="Remove"
+          >
+            <s-icon type="x-circle" />
+          </s-button>
+        </s-stack>
       </s-stack>
-    </s-stack>
-  ));
+    );
+  });
 }
 
 function CustomerSection({
@@ -68,6 +121,7 @@ function CustomerSection({
   i18n,
   items,
   onBrowse,
+  onEditItem,
   onRemove,
   resourceError,
   hiddenIdsName,
@@ -138,35 +192,33 @@ function CustomerSection({
         </s-box>
 
         <s-stack gap="small-200">
-          <s-stack direction="inline" gap="base" alignItems="end">
-            <s-box inlineSize="100%">
-              <s-text-field
-                label={
-                  isCollections
-                    ? i18n.translate("resources.searchCollections")
-                    : i18n.translate("resources.searchProducts")
-                }
-                labelAccessibilityVisibility="exclusive"
-                placeholder={
-                  isCollections
-                    ? i18n.translate("resources.searchCollections")
-                    : i18n.translate("resources.searchProducts")
-                }
-                value=""
-                readonly
-                error={resourceError}
-                onFocus={onBrowse}
-              />
-            </s-box>
+          <s-grid gridTemplateColumns="1fr auto" gap="base" alignItems="end">
+            <s-text-field
+              label={
+                isCollections
+                  ? i18n.translate("resources.searchCollections")
+                  : i18n.translate("resources.searchProducts")
+              }
+              labelAccessibilityVisibility="exclusive"
+              placeholder={
+                isCollections
+                  ? i18n.translate("resources.searchCollections")
+                  : i18n.translate("resources.searchProducts")
+              }
+              value=""
+              readonly
+              error={resourceError}
+              onFocus={onBrowse}
+            />
             <s-button onClick={onBrowse}>
               {i18n.translate("resources.browse")}
             </s-button>
-          </s-stack>
+          </s-grid>
 
           <ResourceList
             items={items}
             itemType={itemType}
-            onEdit={onBrowse}
+            onEdit={onEditItem}
             onRemove={onRemove}
             i18n={i18n}
             emptyLabel={
@@ -210,6 +262,8 @@ function App() {
     getItems,
     onSelectBuyItems,
     onSelectGetItems,
+    onEditBuyItem,
+    onEditGetItem,
     removeBuyItem,
     removeGetItem,
     loading,
@@ -305,6 +359,7 @@ function App() {
           i18n={i18n}
           items={buyItems}
           onBrowse={onSelectBuyItems}
+          onEditItem={onEditBuyItem}
           onRemove={removeBuyItem}
           resourceError={fieldErrors.buyResources}
           hiddenIdsName="buyResourceIds"
@@ -330,6 +385,7 @@ function App() {
           i18n={i18n}
           items={getItems}
           onBrowse={onSelectGetItems}
+          onEditItem={onEditGetItem}
           onRemove={removeGetItem}
           resourceError={fieldErrors.getResources}
           hiddenIdsName="getResourceIds"
@@ -468,6 +524,7 @@ function useExtensionData() {
           metafieldConfig.buyItemType === ITEM_TYPE_COLLECTIONS
             ? metafieldConfig.buyCollectionIds
             : metafieldConfig.buyProductIds,
+          metafieldConfig.buyVariantIds,
           query,
         ),
         getResourcesByIds(
@@ -475,6 +532,7 @@ function useExtensionData() {
           metafieldConfig.getItemType === ITEM_TYPE_COLLECTIONS
             ? metafieldConfig.getCollectionIds
             : metafieldConfig.getProductIds,
+          metafieldConfig.getVariantIds,
           query,
         ),
         fetchDiscountDisplayName(data?.id, query),
@@ -502,6 +560,8 @@ function useExtensionData() {
           value: JSON.stringify({
             buyProductIds: metafieldConfig.buyProductIds,
             getProductIds: metafieldConfig.getProductIds,
+            buyVariantIds: metafieldConfig.buyVariantIds,
+            getVariantIds: metafieldConfig.getVariantIds,
             buyCollectionIds: metafieldConfig.buyCollectionIds,
             getCollectionIds: metafieldConfig.getCollectionIds,
             buyItemType: metafieldConfig.buyItemType,
@@ -537,6 +597,14 @@ function useExtensionData() {
   async function buildConfigPayload() {
     const buyIds = buyItems.map(({id}) => id);
     const getIds = getItems.map(({id}) => id);
+    const buyVariantIds =
+      buyItemType === ITEM_TYPE_PRODUCTS
+        ? collectSelectedVariantIds(buyItems)
+        : [];
+    const getVariantIds =
+      getItemType === ITEM_TYPE_PRODUCTS
+        ? collectSelectedVariantIds(getItems)
+        : [];
     const latestDisplayName = await fetchDiscountDisplayName(data?.id, query);
     const resolvedDisplayName = (
       displayName ||
@@ -547,6 +615,8 @@ function useExtensionData() {
     return {
       buyProductIds: buyItemType === ITEM_TYPE_PRODUCTS ? buyIds : [],
       getProductIds: getItemType === ITEM_TYPE_PRODUCTS ? getIds : [],
+      buyVariantIds,
+      getVariantIds,
       buyCollectionIds: buyItemType === ITEM_TYPE_COLLECTIONS ? buyIds : [],
       getCollectionIds: getItemType === ITEM_TYPE_COLLECTIONS ? getIds : [],
       buyItemType,
@@ -652,11 +722,21 @@ function useExtensionData() {
   };
 
   const openResourcePicker = async (type, selectionIds) => {
+    if (type === "collection") {
+      return resourcePicker({
+        type,
+        selectionIds: selectionIds.map(({id}) => ({id})),
+        action: "select",
+        multiple: true,
+      });
+    }
+
     return resourcePicker({
-      type,
-      selectionIds: selectionIds.map(({id}) => ({id})),
+      type: "product",
       action: "select",
       multiple: true,
+      filter: {variants: true},
+      selectionIds: toProductSelectionIds(selectionIds),
     });
   };
 
@@ -665,7 +745,11 @@ function useExtensionData() {
       buyItemType === ITEM_TYPE_COLLECTIONS ? "collection" : "product";
     const selection = await openResourcePicker(type, buyItems);
     if (selection) {
-      setBuyItems(selection);
+      setBuyItems(
+        type === "collection"
+          ? selection
+          : selection.map(normalizeSelectedProduct),
+      );
     }
   };
 
@@ -674,8 +758,46 @@ function useExtensionData() {
       getItemType === ITEM_TYPE_COLLECTIONS ? "collection" : "product";
     const selection = await openResourcePicker(type, getItems);
     if (selection) {
-      setGetItems(selection);
+      setGetItems(
+        type === "collection"
+          ? selection
+          : selection.map(normalizeSelectedProduct),
+      );
     }
+  };
+
+  const onEditBuyItem = async product => {
+    const selection = await resourcePicker({
+      type: "product",
+      action: "select",
+      multiple: false,
+      filter: {variants: true},
+      selectionIds: toProductSelectionIds([product]),
+    });
+    if (!selection?.[0]) {
+      return;
+    }
+    const updated = normalizeSelectedProduct(selection[0]);
+    setBuyItems(prev =>
+      prev.map(item => (item.id === product.id ? updated : item)),
+    );
+  };
+
+  const onEditGetItem = async product => {
+    const selection = await resourcePicker({
+      type: "product",
+      action: "select",
+      multiple: false,
+      filter: {variants: true},
+      selectionIds: toProductSelectionIds([product]),
+    });
+    if (!selection?.[0]) {
+      return;
+    }
+    const updated = normalizeSelectedProduct(selection[0]);
+    setGetItems(prev =>
+      prev.map(item => (item.id === product.id ? updated : item)),
+    );
   };
 
   const onBuyItemTypeChange = value => {
@@ -723,6 +845,8 @@ function useExtensionData() {
     getItems,
     onSelectBuyItems,
     onSelectGetItems,
+    onEditBuyItem,
+    onEditGetItem,
     removeBuyItem: id =>
       setBuyItems(prev => prev.filter(item => item.id !== id)),
     removeGetItem: id =>
@@ -760,6 +884,12 @@ function parseMetafield(value) {
     return {
       buyProductIds: parsed.buyProductIds ?? [],
       getProductIds: parsed.getProductIds ?? [],
+      buyVariantIds: Array.isArray(parsed.buyVariantIds)
+        ? parsed.buyVariantIds
+        : [],
+      getVariantIds: Array.isArray(parsed.getVariantIds)
+        ? parsed.getVariantIds
+        : [],
       buyCollectionIds,
       getCollectionIds,
       buyItemType,
@@ -771,30 +901,31 @@ function parseMetafield(value) {
       floorPrice: Number(parsed.floorPrice ?? 0.5),
       displayName:
         typeof parsed.displayName === "string" ? parsed.displayName.trim() : "",
-      // Missing → default 1 use/order. Explicit null → unlimited.
-      maxUsesPerOrder: !Object.prototype.hasOwnProperty.call(
-        parsed,
-        "maxUsesPerOrder",
-      )
-        ? 1
-        : parsed.maxUsesPerOrder === null || parsed.maxUsesPerOrder === ""
+      // Missing or null → unlimited (native stacking). Number → that cap.
+      maxUsesPerOrder:
+        parsed.maxUsesPerOrder === null ||
+        parsed.maxUsesPerOrder === undefined ||
+        parsed.maxUsesPerOrder === ""
           ? null
-          : Number(parsed.maxUsesPerOrder) || 1,
+          : Number(parsed.maxUsesPerOrder) || null,
       needsVariableMigration:
         !Array.isArray(parsed.buyCollectionIds) ||
         !Array.isArray(parsed.getCollectionIds) ||
+        !Array.isArray(parsed.buyVariantIds) ||
+        !Array.isArray(parsed.getVariantIds) ||
         parsed.buyQuantity == null ||
         parsed.getQuantity == null ||
         parsed.buyItemType == null ||
         parsed.getItemType == null ||
         parsed.buyPurchaseType == null ||
-        typeof parsed.displayName !== "string" ||
-        !Object.prototype.hasOwnProperty.call(parsed, "maxUsesPerOrder"),
+        typeof parsed.displayName !== "string",
     };
   } catch {
     return {
       buyProductIds: [],
       getProductIds: [],
+      buyVariantIds: [],
+      getVariantIds: [],
       buyCollectionIds: [],
       getCollectionIds: [],
       buyItemType: ITEM_TYPE_PRODUCTS,
@@ -805,7 +936,7 @@ function parseMetafield(value) {
       getQuantity: 1,
       floorPrice: 0.5,
       displayName: "",
-      maxUsesPerOrder: 1,
+      maxUsesPerOrder: null,
       needsVariableMigration: true,
     };
   }
@@ -930,12 +1061,13 @@ async function fetchDiscountDisplayName(discountId, adminApiQuery) {
   return "";
 }
 
-async function getResourcesByIds(itemType, ids, adminApiQuery) {
+async function getResourcesByIds(itemType, ids, variantIds, adminApiQuery) {
   if (!ids.length) {
     return [];
   }
 
   const isCollections = itemType === ITEM_TYPE_COLLECTIONS;
+  const selectedVariantIds = new Set(variantIds ?? []);
   const gql = isCollections
     ? `#graphql
       query GetCollections($ids: [ID!]!) {
@@ -953,11 +1085,84 @@ async function getResourcesByIds(itemType, ids, adminApiQuery) {
           ... on Product {
             id
             title
+            totalVariants
+            featuredImage {
+              url
+            }
+            variants(first: 100) {
+              nodes {
+                id
+                title
+                price
+                image {
+                  url
+                }
+              }
+            }
           }
         }
       }
     `;
 
   const result = await adminApiQuery(gql, {variables: {ids}});
-  return (result?.data?.nodes ?? []).filter(Boolean);
+  const nodes = (result?.data?.nodes ?? []).filter(Boolean);
+
+  if (isCollections) {
+    return nodes;
+  }
+
+  return nodes.map(product => {
+    const allVariants = product.variants?.nodes ?? [];
+    const variants =
+      selectedVariantIds.size > 0
+        ? allVariants.filter(variant => selectedVariantIds.has(variant.id))
+        : allVariants;
+
+    return normalizeSelectedProduct({
+      id: product.id,
+      title: product.title,
+      totalVariants: product.totalVariants ?? allVariants.length,
+      images: product.featuredImage ? [{url: product.featuredImage.url}] : [],
+      variants,
+    });
+  });
+}
+
+function collectSelectedVariantIds(items) {
+  return items.flatMap(item =>
+    (item.variants || []).map(variant => variant.id).filter(Boolean),
+  );
+}
+
+function toProductSelectionIds(items) {
+  return items.map(item => {
+    const variants = (item.variants || [])
+      .map(variant => variant?.id)
+      .filter(Boolean)
+      .map(id => ({id}));
+
+    if (variants.length > 0) {
+      return {id: item.id, variants};
+    }
+
+    return {id: item.id};
+  });
+}
+
+function normalizeSelectedProduct(product) {
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  const totalVariants =
+    Number(product.totalVariants) ||
+    Number(product.totalVariantCount) ||
+    variants.length ||
+    1;
+
+  return {
+    id: product.id,
+    title: product.title,
+    totalVariants,
+    images: product.images || [],
+    variants,
+    price: variants[0]?.price,
+  };
 }

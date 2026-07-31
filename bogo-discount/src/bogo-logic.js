@@ -59,26 +59,28 @@ function toPurchaseType(value) {
  *   getQuantity: number,
  *   floorPrice: number,
  *   displayName: string,
- *   maxUsesPerOrder: number | null
+ *   maxUsesPerOrder: number | null,
+ *   buyVariantIds: Set<string>,
+ *   getVariantIds: Set<string>
  * }}
  */
 export function parseBogoConfig(metafieldValue) {
   try {
     const parsed = JSON.parse(metafieldValue || '{}');
-    // Missing key → default 1 use/order (Buy 1 Get 1 once).
-    // Explicit null → unlimited stacking. Number → that cap.
-    const maxUsesPerOrder = !Object.prototype.hasOwnProperty.call(
-      parsed,
-      'maxUsesPerOrder',
-    )
-      ? 1
-      : parsed.maxUsesPerOrder === null || parsed.maxUsesPerOrder === ''
+    // Missing or null → unlimited stacking (native BXGY). Number → that cap.
+    const maxUsesRaw = parsed.maxUsesPerOrder;
+    const maxUsesPerOrder =
+      maxUsesRaw === null ||
+      maxUsesRaw === undefined ||
+      maxUsesRaw === ''
         ? null
-        : toPositiveInt(parsed.maxUsesPerOrder, 1);
+        : toPositiveInt(maxUsesRaw, null);
 
     return {
       buyProductIds: new Set(parsed.buyProductIds ?? []),
       getProductIds: new Set(parsed.getProductIds ?? []),
+      buyVariantIds: new Set(parsed.buyVariantIds ?? []),
+      getVariantIds: new Set(parsed.getVariantIds ?? []),
       buyCollectionIds: parsed.buyCollectionIds ?? [],
       getCollectionIds: parsed.getCollectionIds ?? [],
       buyItemType: toItemType(parsed.buyItemType),
@@ -96,6 +98,8 @@ export function parseBogoConfig(metafieldValue) {
     return {
       buyProductIds: new Set(),
       getProductIds: new Set(),
+      buyVariantIds: new Set(),
+      getVariantIds: new Set(),
       buyCollectionIds: [],
       getCollectionIds: [],
       buyItemType: ITEM_TYPE_PRODUCTS,
@@ -106,7 +110,7 @@ export function parseBogoConfig(metafieldValue) {
       getQuantity: 1,
       floorPrice: DEFAULT_FLOOR_PRICE,
       displayName: '',
-      maxUsesPerOrder: 1,
+      maxUsesPerOrder: null,
     };
   }
 }
@@ -164,15 +168,26 @@ export function lineMatchesPurchaseType(line, purchaseType) {
 /**
  * @param {{
  *   id?: string | null,
- *   inBuyCollections?: boolean | null,
- *   inGetCollections?: boolean | null
- * } | null | undefined} product
+ *   product?: {
+ *     id?: string | null,
+ *     inBuyCollections?: boolean | null,
+ *     inGetCollections?: boolean | null
+ *   } | null
+ * } | null | undefined} merchandise
  * @param {'products' | 'collections'} itemType
  * @param {Set<string>} productIds
+ * @param {Set<string>} variantIds
  * @param {'buy' | 'get'} side
  * @returns {boolean}
  */
-export function productMatchesSelection(product, itemType, productIds, side) {
+export function merchandiseMatchesSelection(
+  merchandise,
+  itemType,
+  productIds,
+  variantIds,
+  side,
+) {
+  const product = merchandise?.product;
   if (!product?.id) {
     return false;
   }
@@ -183,7 +198,25 @@ export function productMatchesSelection(product, itemType, productIds, side) {
       : Boolean(product.inGetCollections);
   }
 
+  // Variant-level selection wins when configured.
+  if (variantIds.size > 0) {
+    return Boolean(merchandise?.id && variantIds.has(merchandise.id));
+  }
+
   return productIds.has(product.id);
+}
+
+/**
+ * @deprecated Use merchandiseMatchesSelection
+ */
+export function productMatchesSelection(product, itemType, productIds, side) {
+  return merchandiseMatchesSelection(
+    {product},
+    itemType,
+    productIds,
+    new Set(),
+    side,
+  );
 }
 
 /**
@@ -193,6 +226,7 @@ export function productMatchesSelection(product, itemType, productIds, side) {
  *   cost: { amountPerQuantity: { amount: string } },
  *   sellingPlanAllocation?: { sellingPlan?: { id?: string | null } | null } | null,
  *   merchandise?: {
+ *     id?: string | null,
  *     product?: {
  *       id?: string | null,
  *       inBuyCollections?: boolean | null,
@@ -200,10 +234,13 @@ export function productMatchesSelection(product, itemType, productIds, side) {
  *     } | null
  *   } | null
  * }>} lines
- * @param {(product: {
+ * @param {(merchandise: {
  *   id?: string | null,
- *   inBuyCollections?: boolean | null,
- *   inGetCollections?: boolean | null
+ *   product?: {
+ *     id?: string | null,
+ *     inBuyCollections?: boolean | null,
+ *     inGetCollections?: boolean | null
+ *   } | null
  * }) => boolean} matches
  * @param {'one_time' | 'subscription' | 'both'} purchaseType
  * @returns {CartUnit[]}
@@ -217,8 +254,8 @@ export function expandCartUnits(lines, matches, purchaseType = PURCHASE_TYPE_BOT
       continue;
     }
 
-    const product = line.merchandise?.product;
-    if (!product || !matches(product)) {
+    const merchandise = line.merchandise;
+    if (!merchandise || !matches(merchandise)) {
       continue;
     }
 
@@ -310,11 +347,11 @@ export function allocateExactAmounts(totalAmount, unitCount) {
 }
 
 /**
- * Requires an exact buy-set size (no leftover buy units). Extra get units are
- * allowed — only the reward quantity is discounted so Shopify can leave the
- * remaining get units at full price on the same line.
- * Applies matching floor absorption once per buy cart line (not per unit) so
- * Shopify does not split a multi-qty buy line when cents do not divide evenly.
+ * Requires full buy:get sets using minimum quantities (native BXGY stacking).
+ * Extra buy or get units beyond completed sets stay full price; Shopify can
+ * split cart lines when only the qualifying quantity is targeted.
+ * Floor absorption is applied only to qualifying buy units (with quantity) so
+ * leftover buy units can appear as a separate undiscouned row.
  *
  * @param {CartUnit[]} buyUnits
  * @param {CartUnit[]} getUnits
@@ -323,7 +360,7 @@ export function allocateExactAmounts(totalAmount, unitCount) {
  * @param {number} floorPrice
  * @param {number | null | undefined} maxUsesPerOrder
  * @returns {{
- *   buyLineTotals: Map<string, number>,
+ *   buyLines: Map<string, { amount: number, quantity: number }>,
  *   get: Map<string, Map<number, number>>
  * } | null}
  */
@@ -356,15 +393,8 @@ export function computeQuantityAwareBogoGroups(
     return null;
   }
 
-  // Buy side must be an exact set size (extra buy units remove the offer).
-  // Get side may have leftovers — only reward units are discounted so the
-  // cart can show mixed full-price + discounted units on the get line.
-  if (buyUnits.length !== sets * safeBuyQty) {
-    return null;
-  }
-
-  /** @type {Map<string, number>} */
-  const buyLineTotals = new Map();
+  /** @type {Map<string, { amount: number, quantity: number }>} */
+  const buyLines = new Map();
   /** @type {Map<string, Map<number, number>>} */
   const get = new Map();
 
@@ -376,30 +406,33 @@ export function computeQuantityAwareBogoGroups(
     addGroupedDiscount(get, getUnit.lineId, getDiscount);
   }
 
-  // Absorb exactly (sets * getQuantity * floor) from buy lines in total.
-  // Track cents per line so one line-level discount keeps quantity together.
+  // Absorb exactly (sets * getQuantity * floor) from qualifying buy units.
   const totalAbsorb = sets * safeGetQty * floorPrice;
   const buyAmounts = allocateExactAmounts(
     totalAbsorb,
     qualifyingBuyUnits.length,
   );
-  /** @type {Map<string, number>} */
-  const buyLineCents = new Map();
+  /** @type {Map<string, { cents: number, quantity: number }>} */
+  const buyLineAccum = new Map();
 
   qualifyingBuyUnits.forEach((buyUnit, index) => {
     const buyDiscount = Math.min(buyAmounts[index] ?? 0, buyUnit.unitPrice);
     const cents = Math.round(buyDiscount * 100);
-    buyLineCents.set(
-      buyUnit.lineId,
-      (buyLineCents.get(buyUnit.lineId) ?? 0) + cents,
-    );
+    const current = buyLineAccum.get(buyUnit.lineId) ?? {
+      cents: 0,
+      quantity: 0,
+    };
+    buyLineAccum.set(buyUnit.lineId, {
+      cents: current.cents + cents,
+      quantity: current.quantity + 1,
+    });
   });
 
-  for (const [lineId, cents] of buyLineCents) {
-    buyLineTotals.set(lineId, cents / 100);
+  for (const [lineId, {cents, quantity}] of buyLineAccum) {
+    buyLines.set(lineId, {amount: cents / 100, quantity});
   }
 
-  return {buyLineTotals, get};
+  return {buyLines, get};
 }
 
 /**
@@ -449,39 +482,39 @@ export function groupedDiscountsToCandidates(grouped, message) {
 }
 
 /**
- * One fixed amount per cart line (appliesToEachItem: false) so multi-qty
- * buy lines stay as a single row in the cart.
+ * Floor absorb on the qualifying buy quantity only so leftover buy units can
+ * split onto a separate undiscouned cart line (native BXGY style).
  *
- * @param {Map<string, number>} lineTotals
+ * @param {Map<string, { amount: number, quantity: number }>} buyLines
  * @param {string} message
  * @returns {Array<{
  *   message?: string,
- *   targets: Array<{ cartLine: { id: string } }>,
+ *   targets: Array<{ cartLine: { id: string, quantity?: number } }>,
  *   value: { fixedAmount: { amount: string, appliesToEachItem: boolean } }
  * }>}
  */
-export function lineTotalDiscountsToCandidates(lineTotals, message) {
+export function buyAbsorbDiscountsToCandidates(buyLines, message) {
   /** @type {Array<{
    *   message?: string,
-   *   targets: Array<{ cartLine: { id: string } }>,
+   *   targets: Array<{ cartLine: { id: string, quantity?: number } }>,
    *   value: { fixedAmount: { amount: string, appliesToEachItem: boolean } }
    * }>} */
   const candidates = [];
   const label = typeof message === 'string' ? message.trim() : '';
 
-  for (const [lineId, amount] of lineTotals) {
+  for (const [lineId, {amount, quantity}] of buyLines) {
     const rounded = Number(formatDecimal(amount));
-    if (rounded <= 0) {
+    if (rounded <= 0 || quantity < 1) {
       continue;
     }
 
     /** @type {{
      *   message?: string,
-     *   targets: Array<{ cartLine: { id: string } }>,
+     *   targets: Array<{ cartLine: { id: string, quantity?: number } }>,
      *   value: { fixedAmount: { amount: string, appliesToEachItem: boolean } }
      * }} */
     const candidate = {
-      targets: [{cartLine: {id: lineId}}],
+      targets: [{cartLine: {id: lineId, quantity}}],
       value: {
         fixedAmount: {
           amount: formatDecimal(rounded),
@@ -498,6 +531,35 @@ export function lineTotalDiscountsToCandidates(lineTotals, message) {
   }
 
   return candidates;
+}
+
+/**
+ * One fixed amount per cart line (appliesToEachItem: false) so multi-qty
+ * buy lines stay as a single row in the cart.
+ *
+ * @param {Map<string, number>} lineTotals
+ * @param {string} message
+ * @returns {Array<{
+ *   message?: string,
+ *   targets: Array<{ cartLine: { id: string } }>,
+ *   value: { fixedAmount: { amount: string, appliesToEachItem: boolean } }
+ * }>}
+ */
+export function lineTotalDiscountsToCandidates(lineTotals, message) {
+  /** @type {Map<string, { amount: number, quantity: number }>} */
+  const buyLines = new Map();
+  for (const [lineId, amount] of lineTotals) {
+    buyLines.set(lineId, {amount, quantity: 1});
+  }
+  return buyAbsorbDiscountsToCandidates(buyLines, message).map(candidate => {
+    const next = {
+      ...candidate,
+      targets: candidate.targets.map(target => ({
+        cartLine: {id: target.cartLine.id},
+      })),
+    };
+    return next;
+  });
 }
 
 /**
@@ -534,11 +596,11 @@ export function buildBogoDiscountCandidates(input) {
   const buyConfigured =
     config.buyItemType === ITEM_TYPE_COLLECTIONS
       ? config.buyCollectionIds.length > 0
-      : config.buyProductIds.size > 0;
+      : config.buyProductIds.size > 0 || config.buyVariantIds.size > 0;
   const getConfigured =
     config.getItemType === ITEM_TYPE_COLLECTIONS
       ? config.getCollectionIds.length > 0
-      : config.getProductIds.size > 0;
+      : config.getProductIds.size > 0 || config.getVariantIds.size > 0;
 
   if (!buyConfigured || !getConfigured) {
     return [];
@@ -546,22 +608,24 @@ export function buildBogoDiscountCandidates(input) {
 
   const buyUnits = expandCartUnits(
     input.cart.lines,
-    product =>
-      productMatchesSelection(
-        product,
+    merchandise =>
+      merchandiseMatchesSelection(
+        merchandise,
         config.buyItemType,
         config.buyProductIds,
+        config.buyVariantIds,
         'buy',
       ),
     config.buyPurchaseType,
   );
   const getUnits = expandCartUnits(
     input.cart.lines,
-    product =>
-      productMatchesSelection(
-        product,
+    merchandise =>
+      merchandiseMatchesSelection(
+        merchandise,
         config.getItemType,
         config.getProductIds,
+        config.getVariantIds,
         'get',
       ),
     config.getPurchaseType,
@@ -584,10 +648,9 @@ export function buildBogoDiscountCandidates(input) {
     return [];
   }
 
-  // Only the reward (get) lines show the discount name — same as native BXGY.
-  // Buy-side floor absorption stays silent so buy qty 2/3/4 is not labeled.
+  // Get reward units + qualifying buy absorb (quantity-scoped so leftovers split).
   return [
     ...groupedDiscountsToCandidates(groups.get, message),
-    ...lineTotalDiscountsToCandidates(groups.buyLineTotals, ''),
+    ...buyAbsorbDiscountsToCandidates(groups.buyLines, message),
   ];
 }

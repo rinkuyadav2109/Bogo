@@ -74,10 +74,12 @@
                 }
               },
               {
+                "message": "Bogo25",
                 "targets": [
                   {
                     "cartLine": {
-                      "id": "gid://shopify/CartLine/buy"
+                      "id": "gid://shopify/CartLine/buy",
+                      "quantity": 1
                     }
                   }
                 ],
