@@ -269,6 +269,154 @@ export function expandCartUnits(lines, matches, purchaseType = PURCHASE_TYPE_BOT
 }
 
 /**
+ * Assign each cart unit to buy or get at most once (native BXGY).
+ * Needed when the same collection/product qualifies for both sides.
+ * Prefer cheaper units as Get Y; remaining eligible units as Buy X.
+ * Floor split math is unchanged — this only builds the unit pools.
+ *
+ * @param {Array<{
+ *   id: string,
+ *   quantity: number,
+ *   cost: { amountPerQuantity: { amount: string } },
+ *   sellingPlanAllocation?: { sellingPlan?: { id?: string | null } | null } | null,
+ *   merchandise?: {
+ *     id?: string | null,
+ *     product?: {
+ *       id?: string | null,
+ *       inBuyCollections?: boolean | null,
+ *       inGetCollections?: boolean | null
+ *     } | null
+ *   } | null
+ * }>} lines
+ * @param {(merchandise: object) => boolean} buyMatches
+ * @param {(merchandise: object) => boolean} getMatches
+ * @param {'one_time' | 'subscription' | 'both'} buyPurchaseType
+ * @param {'one_time' | 'subscription' | 'both'} getPurchaseType
+ * @param {number} buyQuantity
+ * @param {number} getQuantity
+ * @param {number | null | undefined} maxUsesPerOrder
+ * @returns {{ buyUnits: CartUnit[], getUnits: CartUnit[] }}
+ */
+export function allocateExclusiveBogoUnits(
+  lines,
+  buyMatches,
+  getMatches,
+  buyPurchaseType,
+  getPurchaseType,
+  buyQuantity,
+  getQuantity,
+  maxUsesPerOrder = null,
+) {
+  /** @type {Array<CartUnit & { canBuy: boolean, canGet: boolean, index: number }>} */
+  const pool = [];
+  let index = 0;
+
+  for (const line of lines) {
+    const merchandise = line.merchandise;
+    if (!merchandise) {
+      continue;
+    }
+
+    const unitPrice = Number(line.cost.amountPerQuantity.amount);
+    const canBuy =
+      lineMatchesPurchaseType(line, buyPurchaseType) && buyMatches(merchandise);
+    const canGet =
+      lineMatchesPurchaseType(line, getPurchaseType) && getMatches(merchandise);
+
+    if (!canBuy && !canGet) {
+      continue;
+    }
+
+    for (let i = 0; i < line.quantity; i++) {
+      pool.push({
+        lineId: line.id,
+        unitPrice,
+        canBuy,
+        canGet,
+        index: index++,
+      });
+    }
+  }
+
+  const byPrice = [...pool].sort((a, b) => {
+    if (a.unitPrice !== b.unitPrice) {
+      return a.unitPrice - b.unitPrice;
+    }
+    return a.index - b.index;
+  });
+
+  const safeBuyQty = Math.max(1, Math.floor(buyQuantity));
+  const safeGetQty = Math.max(1, Math.floor(getQuantity));
+  const maxSets =
+    maxUsesPerOrder !== null &&
+    maxUsesPerOrder !== undefined &&
+    Number.isFinite(maxUsesPerOrder) &&
+    maxUsesPerOrder >= 1
+      ? Math.floor(maxUsesPerOrder)
+      : Number.POSITIVE_INFINITY;
+
+  /** @type {CartUnit[]} */
+  const buyUnits = [];
+  /** @type {CartUnit[]} */
+  const getUnits = [];
+  const taken = new Set();
+
+  let sets = 0;
+  while (sets < maxSets) {
+    /** @type {typeof pool} */
+    const gets = [];
+    for (const unit of byPrice) {
+      if (taken.has(unit.index) || !unit.canGet) {
+        continue;
+      }
+      gets.push(unit);
+      if (gets.length === safeGetQty) {
+        break;
+      }
+    }
+    if (gets.length < safeGetQty) {
+      break;
+    }
+
+    for (const unit of gets) {
+      taken.add(unit.index);
+    }
+
+    /** @type {typeof pool} */
+    const buys = [];
+    for (const unit of byPrice) {
+      if (taken.has(unit.index) || !unit.canBuy) {
+        continue;
+      }
+      buys.push(unit);
+      if (buys.length === safeBuyQty) {
+        break;
+      }
+    }
+    if (buys.length < safeBuyQty) {
+      for (const unit of gets) {
+        taken.delete(unit.index);
+      }
+      break;
+    }
+
+    for (const unit of buys) {
+      taken.add(unit.index);
+    }
+
+    for (const unit of gets) {
+      getUnits.push({lineId: unit.lineId, unitPrice: unit.unitPrice});
+    }
+    for (const unit of buys) {
+      buyUnits.push({lineId: unit.lineId, unitPrice: unit.unitPrice});
+    }
+    sets += 1;
+  }
+
+  return {buyUnits, getUnits};
+}
+
+/**
  * @param {Map<string, Map<number, number>>} grouped
  * @param {string} lineId
  * @param {number} amount
