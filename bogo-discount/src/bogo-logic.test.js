@@ -702,6 +702,96 @@ describe('buildBogoDiscountCandidates', () => {
     expect(candidates).toHaveLength(2);
   });
 
+  test('same collection for buy and get does not double-count units', () => {
+    // Native BXGY: need 2 units from the collection for Buy 1 Get 1.
+    const oneItem = buildBogoDiscountCandidates({
+      cart: {
+        lines: [
+          {
+            id: 'gid://shopify/CartLine/1',
+            quantity: 1,
+            cost: {amountPerQuantity: {amount: '100.0'}},
+            merchandise: {
+              product: {
+                id: 'gid://shopify/Product/a',
+                inBuyCollections: true,
+                inGetCollections: true,
+              },
+            },
+          },
+        ],
+      },
+      discount: {
+        metafield: {
+          value: JSON.stringify({
+            buyCollectionIds: ['gid://shopify/Collection/shared'],
+            getCollectionIds: ['gid://shopify/Collection/shared'],
+            buyItemType: 'collections',
+            getItemType: 'collections',
+            buyQuantity: 1,
+            getQuantity: 1,
+            floorPrice: 0.5,
+          }),
+        },
+      },
+    });
+    expect(oneItem).toHaveLength(0);
+
+    const twoItems = buildBogoDiscountCandidates({
+      cart: {
+        lines: [
+          {
+            id: 'gid://shopify/CartLine/cheap',
+            quantity: 1,
+            cost: {amountPerQuantity: {amount: '50.0'}},
+            merchandise: {
+              product: {
+                id: 'gid://shopify/Product/cheap',
+                inBuyCollections: true,
+                inGetCollections: true,
+              },
+            },
+          },
+          {
+            id: 'gid://shopify/CartLine/pricey',
+            quantity: 1,
+            cost: {amountPerQuantity: {amount: '200.0'}},
+            merchandise: {
+              product: {
+                id: 'gid://shopify/Product/pricey',
+                inBuyCollections: true,
+                inGetCollections: true,
+              },
+            },
+          },
+        ],
+      },
+      discount: {
+        metafield: {
+          value: JSON.stringify({
+            buyCollectionIds: ['gid://shopify/Collection/shared'],
+            getCollectionIds: ['gid://shopify/Collection/shared'],
+            buyItemType: 'collections',
+            getItemType: 'collections',
+            buyQuantity: 1,
+            getQuantity: 1,
+            floorPrice: 0.5,
+          }),
+        },
+      },
+    });
+
+    expect(twoItems).toHaveLength(2);
+    const getCandidate = twoItems.find(
+      c => c.targets[0].cartLine.id === 'gid://shopify/CartLine/cheap',
+    );
+    const buyCandidate = twoItems.find(
+      c => c.targets[0].cartLine.id === 'gid://shopify/CartLine/pricey',
+    );
+    expect(getCandidate?.value.fixedAmount.amount).toBe('49.50');
+    expect(buyCandidate?.value.fixedAmount.amount).toBe('0.50');
+  });
+
   test('returns empty when buy product is missing from cart', () => {
     const candidates = buildBogoDiscountCandidates({
       cart: {
