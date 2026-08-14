@@ -15,6 +15,15 @@ name = "BXGY function configuration"
 description = "Buy/get product IDs and minimum line price for the BXGY discount function"
 access.admin = "merchant_read_write"
 
+[shop.metafields.app.bogo_get_disclaimers]
+type = "json"
+name = "BOGO Get Y disclaimers"
+description = "Map of discount display names to Get Y cart disclaimers"
+
+  [shop.metafields.app.bogo_get_disclaimers.access]
+  admin = "merchant_read_write"
+  storefront = "public_read"
+
 [product.metafields.app.demo_info]
 type = "single_line_text_field"
 name = "Demo Source Info"
