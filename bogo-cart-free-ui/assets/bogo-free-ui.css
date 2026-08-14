@@ -1,0 +1,17 @@
+/* Hide real floor/sale prices until JS rewrites with Dawn markup. */
+html.bogo-free-ui-pending .cart-item__discounted-prices,
+html.bogo-free-ui-pending .cart-item__price-wrapper,
+html.bogo-free-ui-pending .cart-item__details > .product-option,
+html.bogo-free-ui-pending .cart-item__final-price,
+html.bogo-free-ui-pending .cart-item__old-price {
+  visibility: hidden !important;
+}
+
+html.bogo-free-ui-pending [data-bogo-free-price='1'],
+html.bogo-free-ui-ready [data-bogo-free-price='1'] {
+  visibility: visible !important;
+}
+
+.bogo-free-ui-hide {
+  display: none !important;
+}

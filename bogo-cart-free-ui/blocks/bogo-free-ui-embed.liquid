@@ -1,0 +1,60 @@
+{% comment %}
+  App embed (head): hide floor prices before paint, then rewrite like native BXGY.
+{% endcomment %}
+{%- if block.settings.enabled -%}
+<script>
+  document.documentElement.classList.add('bogo-free-ui-pending');
+  window.setTimeout(function () {
+    document.documentElement.classList.remove('bogo-free-ui-pending');
+    document.documentElement.classList.add('bogo-free-ui-ready');
+  }, 2500);
+</script>
+{{ 'bogo-free-ui.css' | asset_url | stylesheet_tag }}
+<script type="application/json" id="bogo-free-ui-config">
+  {
+    "moneyFormat": {{ shop.money_format | json }},
+    "currency": {{ cart.currency.iso_code | json }},
+    "discountPrefix": {{ block.settings.discount_prefix | default: 'BXGY' | json }},
+    "maxFloorCents": {{ block.settings.max_floor_cents | default: 100 }},
+    "enabled": true
+  }
+</script>
+<script type="application/json" id="bogo-free-ui-cart">
+  {{ cart | json }}
+</script>
+<script src="{{ 'bogo-free-ui.js' | asset_url }}" defer></script>
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "BOGO cart Free UI",
+  "target": "head",
+  "settings": [
+    {
+      "type": "checkbox",
+      "id": "enabled",
+      "label": "Show native-like prices on cart / drawer",
+      "default": true,
+      "info": "Checkout still uses the real minimum line price from the discount."
+    },
+    {
+      "type": "text",
+      "id": "discount_prefix",
+      "label": "Discount title / code prefix",
+      "default": "BXGY",
+      "info": "Only discounts whose title starts with this prefix are rewritten (e.g. BXGYCOLDISCOUNT1). Native BOGO is ignored."
+    },
+    {
+      "type": "range",
+      "id": "max_floor_cents",
+      "min": 1,
+      "max": 100,
+      "step": 1,
+      "unit": "¢",
+      "label": "Treat as Get Y when unit price is at most",
+      "default": 100,
+      "info": "Your floor price in cents (e.g. 50 for Rs. 0.50)."
+    }
+  ]
+}
+{% endschema %}
