@@ -246,6 +246,40 @@
   }
 
   /**
+   * Dawn keeps both cart page and cart-drawer rows in the DOM when the drawer
+   * setting is on. Match free/buy lines per surface so drawer rows do not
+   * consume the only match and leave the cart page unstyled.
+   */
+  function rowSurface(row) {
+    if (
+      row.closest(
+        'cart-drawer, #CartDrawer, cart-notification, #cart-notification',
+      )
+    ) {
+      return 'drawer';
+    }
+    if (
+      row.closest(
+        '#main-cart-items, #CartItems, form[action="/cart"], cart-items',
+      )
+    ) {
+      return 'page';
+    }
+    return 'other';
+  }
+
+  function groupRowsBySurface(rows) {
+    var groups = {};
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var surface = rowSurface(row);
+      if (!groups[surface]) groups[surface] = [];
+      groups[surface].push(row);
+    }
+    return groups;
+  }
+
+  /**
    * Match by cart line key, then by cart index.
    * Never by variantId — extras/splits of the same product must stay separate.
    */
@@ -561,22 +595,25 @@
   function applyCart(cart, config) {
     applying = true;
     var classified = classifyItems(cart, config);
-    var freeUsed = {};
-    var buyUsed = {};
     var activeRows = [];
+    var bySurface = groupRowsBySurface(rowCandidates());
 
-    rowCandidates().forEach(function (row) {
-      var freeMatch = matchRow(row, classified.free, freeUsed);
-      if (freeMatch) {
-        activeRows.push(row);
-        applyGetToRow(row, freeMatch, config);
-        return;
-      }
-      var buyMatch = matchRow(row, classified.buy, buyUsed);
-      if (buyMatch) {
-        activeRows.push(row);
-        applyBuyToRow(row, buyMatch, config);
-      }
+    Object.keys(bySurface).forEach(function (surface) {
+      var freeUsed = {};
+      var buyUsed = {};
+      bySurface[surface].forEach(function (row) {
+        var freeMatch = matchRow(row, classified.free, freeUsed);
+        if (freeMatch) {
+          activeRows.push(row);
+          applyGetToRow(row, freeMatch, config);
+          return;
+        }
+        var buyMatch = matchRow(row, classified.buy, buyUsed);
+        if (buyMatch) {
+          activeRows.push(row);
+          applyBuyToRow(row, buyMatch, config);
+        }
+      });
     });
 
     clearStaleRows(activeRows);
