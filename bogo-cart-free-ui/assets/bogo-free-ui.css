@@ -1,17 +1,32 @@
-/* Hide real floor/sale prices until JS rewrites with Dawn markup. */
+/* Hide real floor/sale prices until JS rewrites (Dawn + Ella). */
 html.bogo-free-ui-pending .cart-item__discounted-prices,
 html.bogo-free-ui-pending .cart-item__price-wrapper,
 html.bogo-free-ui-pending .cart-item__details > .product-option,
 html.bogo-free-ui-pending .cart-item__final-price,
-html.bogo-free-ui-pending .cart-item__old-price {
-  visibility: hidden !important;
-}
+html.bogo-free-ui-pending .cart-item__old-price,
 
+/* Ella cart drawer */
+html.bogo-free-ui-pending .previewCartItem-price,
+html.bogo-free-ui-pending .previewCartItem-saving-price,
+html.bogo-free-ui-pending .before-discount-price,
+html.bogo-free-ui-pending .discounted-price,
+
+/* Ella cart page */
+
+html.bogo-free-ui-pending .cart-item-total .cart-item-value,
+html.bogo-free-ui-pending [data-item-final-price-display],
+html.bogo-free-ui-pending [data-item-original-price-display],
+html.bogo-free-ui-pending [data-item-price-with-quantity-display] {
+  visibility: hidden !important;
+
+}
 html.bogo-free-ui-pending [data-bogo-free-price='1'],
 html.bogo-free-ui-ready [data-bogo-free-price='1'] {
-  visibility: visible !important;
-}
 
+  visibility: visible !important;
+
+}
 .bogo-free-ui-hide {
   display: none !important;
 }
+
