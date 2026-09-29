@@ -204,6 +204,7 @@
     return dedupeHosts(
       document.querySelectorAll(
         [
+          // Dawn
           'form[action="/cart"] tr.cart-item',
           'form[action="/cart"] .cart-item',
           '#main-cart-items .cart-item',
@@ -212,6 +213,13 @@
           '#CartDrawer .cart-item',
           '[id^="CartItem-"]',
           '[id^="CartDrawer-Item-"]',
+          // Ella theme — cart drawer
+          '.previewCartList .previewCartItem',
+          '.previewCart .previewCartItem',
+          'li.previewCartItem',
+          // Ella theme — cart page
+          '.cart-list .cart-item',
+          '.cart .cart-list .cart-item',
         ].join(','),
       ),
     );
@@ -222,12 +230,22 @@
   }
 
   function rowKey(row) {
-    return (
+    var fromRow =
       normalizeKey(row.getAttribute('data-key')) ||
       normalizeKey(row.getAttribute('data-cart-item-key')) ||
       normalizeKey(row.getAttribute('data-line-key')) ||
-      ''
+      normalizeKey(row.getAttribute('data-line'));
+    if (fromRow) return fromRow;
+
+    // Ella: line key lives on qty input / remove button as data-line.
+    var lineNode = row.querySelector(
+      '[data-line], [data-cart-remove-id][data-line], input[data-line]',
     );
+    if (lineNode) {
+      var line = normalizeKey(lineNode.getAttribute('data-line'));
+      if (line) return line;
+    }
+    return '';
   }
 
   /** Dawn CartItem-1 / CartDrawer-Item-1 is 1-based and matches cart.items index. */
@@ -237,7 +255,9 @@
       id.match(/^CartItem-(\d+)$/i) || id.match(/^CartDrawer-Item-(\d+)$/i);
     if (match) return parseInt(match[1], 10) - 1;
 
-    var qtyInput = row.querySelector('[name="updates[]"][data-index]');
+    var qtyInput = row.querySelector(
+      '[name="updates[]"][data-index], input.quantity[data-index], [data-cart-quantity-id][data-index]',
+    );
     if (qtyInput) {
       var dataIndex = parseInt(qtyInput.getAttribute('data-index'), 10);
       if (Number.isFinite(dataIndex) && dataIndex >= 1) return dataIndex - 1;
@@ -246,26 +266,63 @@
   }
 
   /**
-   * Dawn keeps both cart page and cart-drawer rows in the DOM when the drawer
-   * setting is on. Match free/buy lines per surface so drawer rows do not
-   * consume the only match and leave the cart page unstyled.
+   * Themes keep both cart page and cart-drawer rows in the DOM. Match free/buy
+   * lines per surface so drawer rows do not consume the only match and leave
+   * the cart page unstyled.
    */
   function rowSurface(row) {
     if (
       row.closest(
-        'cart-drawer, #CartDrawer, cart-notification, #cart-notification',
+        [
+          'cart-drawer',
+          '#CartDrawer',
+          'cart-notification',
+          '#cart-notification',
+          // Ella drawer
+          '.previewCart',
+          '.previewCartList',
+          '#halo-cart-sidebar',
+          '.halo-cart-sidebar',
+          '[data-cart-sidebar]',
+        ].join(', '),
       )
     ) {
       return 'drawer';
     }
     if (
       row.closest(
-        '#main-cart-items, #CartItems, form[action="/cart"], cart-items',
+        [
+          '#main-cart-items',
+          '#CartItems',
+          'form[action="/cart"]',
+          'cart-items',
+          // Ella cart page
+          '.cart-list',
+          '.template-cart .cart',
+          'main .cart',
+        ].join(', '),
       )
     ) {
       return 'page';
     }
     return 'other';
+  }
+
+  /** Ella drawer (.previewCartItem) vs Ella page (.cart-item-block) vs Dawn. */
+  function rowTheme(row) {
+    if (
+      row.classList.contains('previewCartItem') ||
+      row.closest('.previewCartList, .previewCart')
+    ) {
+      return 'ella-drawer';
+    }
+    if (
+      row.querySelector('.cart-item-total, .cart-item-value, .cart-item-block') ||
+      (row.classList.contains('cart-item') && row.closest('.cart-list'))
+    ) {
+      return 'ella-page';
+    }
+    return 'dawn';
   }
 
   function groupRowsBySurface(rows) {
@@ -408,6 +465,214 @@
     return '<span class="price price--end">' + moneyHtml + '</span>';
   }
 
+  function setTextAll(nodes, text) {
+    Array.prototype.forEach.call(nodes, function (node) {
+      if (node) node.textContent = text;
+    });
+  }
+
+  function hideAll(nodes) {
+    Array.prototype.forEach.call(nodes, function (node) {
+      if (!node) return;
+      node.classList.add('bogo-free-ui-hide');
+    });
+  }
+
+  function showAll(nodes) {
+    Array.prototype.forEach.call(nodes, function (node) {
+      if (!node) return;
+      node.classList.remove('bogo-free-ui-hide');
+    });
+  }
+
+  /**
+   * Ella cart drawer — .previewCartItem price block.
+   * Get Y: strikethrough original + $0. Buy X: original only (no floor).
+   */
+  function applyEllaDrawerGet(row, freeItem, config) {
+    var compareUnit = formatMoney(freeItem.originalPrice, config.moneyFormat);
+    var zeroHtml = formatMoney(0, config.moneyFormat);
+    var priceRoot = row.querySelector('.previewCartItem-price');
+    if (!priceRoot) return;
+
+    backupHtml(priceRoot);
+    priceRoot.setAttribute(ATTR_PRICE, '1');
+    priceRoot.setAttribute('data-price', '0');
+    if (freeItem.originalPrice != null) {
+      priceRoot.setAttribute('data-original-price', String(freeItem.originalPrice));
+    }
+
+    var saving = priceRoot.querySelector('.previewCartItem-saving-price');
+    if (!saving) {
+      var priceSpan = priceRoot.querySelector('.price') || priceRoot;
+      saving = document.createElement('span');
+      saving.className = 'previewCartItem-saving-price';
+      priceSpan.insertBefore(saving, priceSpan.firstChild);
+    }
+
+    var oldPrice = saving.querySelector(
+      '.before-discount-price, [data-item-original-price-display], s',
+    );
+    if (!oldPrice) {
+      oldPrice = document.createElement('s');
+      oldPrice.className = 'before-discount-price';
+      oldPrice.setAttribute('data-item-original-price-display', '');
+      saving.insertBefore(oldPrice, saving.firstChild);
+    }
+    oldPrice.classList.remove('bogo-free-ui-hide');
+    oldPrice.textContent = compareUnit;
+
+    var finalPrice = saving.querySelector(
+      '.discounted-price, [data-item-final-price-display]',
+    );
+    if (!finalPrice) {
+      finalPrice = document.createElement('span');
+      finalPrice.className = 'discounted-price';
+      finalPrice.setAttribute('data-item-final-price-display', '');
+      saving.appendChild(finalPrice);
+    }
+    finalPrice.classList.remove('bogo-free-ui-hide');
+    finalPrice.textContent = zeroHtml;
+  }
+
+  function applyEllaDrawerBuy(row, buyItem, config) {
+    var unitMoney = formatMoney(buyItem.originalPrice, config.moneyFormat);
+    var priceRoot = row.querySelector('.previewCartItem-price');
+    if (!priceRoot) return;
+
+    backupHtml(priceRoot);
+    priceRoot.setAttribute(ATTR_PRICE, '1');
+    priceRoot.setAttribute('data-price', String(buyItem.originalPrice));
+    priceRoot.setAttribute('data-original-price', String(buyItem.originalPrice));
+
+    var saving = priceRoot.querySelector('.previewCartItem-saving-price');
+    if (saving) {
+      hideAll(
+        saving.querySelectorAll(
+          '.before-discount-price, [data-item-original-price-display], s',
+        ),
+      );
+      var finalPrice = saving.querySelector(
+        '.discounted-price, [data-item-final-price-display]',
+      );
+      if (finalPrice) {
+        finalPrice.classList.remove('bogo-free-ui-hide');
+        finalPrice.textContent = unitMoney;
+      } else {
+        saving.textContent = unitMoney;
+      }
+    } else {
+      var priceSpan = priceRoot.querySelector('.price');
+      if (priceSpan) {
+        var existing = priceSpan.querySelector(
+          '[data-item-final-price-display], .discounted-price',
+        );
+        if (existing) existing.textContent = unitMoney;
+        else priceSpan.textContent = unitMoney;
+      } else {
+        priceRoot.textContent = unitMoney;
+      }
+    }
+  }
+
+  /**
+   * Ella cart page — .cart-item with unit + line total columns.
+   */
+  function applyEllaPageGet(row, freeItem, config) {
+    var compareUnit = formatMoney(freeItem.originalPrice, config.moneyFormat);
+    var zeroHtml = formatMoney(0, config.moneyFormat);
+
+    var priceWrappers = row.querySelectorAll('.cart-item__price-wrapper');
+    Array.prototype.forEach.call(priceWrappers, function (wrap) {
+      backupHtml(wrap);
+      wrap.setAttribute(ATTR_PRICE, '1');
+      wrap.classList.remove('bogo-free-ui-hide');
+
+      var oldNodes = wrap.querySelectorAll(
+        '.cart-item__old-price, [data-item-original-price-display]',
+      );
+      if (oldNodes.length) {
+        showAll(oldNodes);
+        setTextAll(oldNodes, compareUnit);
+      } else {
+        var dl = wrap.querySelector('.cart-item__discounted-prices') || wrap;
+        var s = document.createElement('s');
+        s.className = 'cart-item__old-price price price--end';
+        s.setAttribute('data-item-original-price-display', '');
+        s.textContent = compareUnit;
+        dl.insertBefore(s, dl.firstChild);
+      }
+
+      var finals = wrap.querySelectorAll('[data-item-final-price-display]');
+      if (finals.length) {
+        setTextAll(finals, zeroHtml);
+      } else {
+        var dds = wrap.querySelectorAll('dd.price');
+        if (dds.length) dds[dds.length - 1].textContent = zeroHtml;
+      }
+    });
+
+    var totals = row.querySelectorAll('.cart-item-total');
+    Array.prototype.forEach.call(totals, function (total) {
+      backupHtml(total);
+      total.setAttribute(ATTR_PRICE, '1');
+      total.setAttribute('data-price', '0');
+      if (freeItem.originalLinePrice != null) {
+        total.setAttribute(
+          'data-original-price',
+          String(freeItem.originalLinePrice),
+        );
+      }
+      var value = total.querySelector(
+        '.cart-item-value, [data-item-price-with-quantity-display]',
+      );
+      if (value) value.textContent = zeroHtml;
+      else total.textContent = zeroHtml;
+    });
+  }
+
+  function applyEllaPageBuy(row, buyItem, config) {
+    var unitMoney = formatMoney(buyItem.originalPrice, config.moneyFormat);
+    var lineMoney = formatMoney(buyItem.originalLinePrice, config.moneyFormat);
+
+    var priceWrappers = row.querySelectorAll('.cart-item__price-wrapper');
+    Array.prototype.forEach.call(priceWrappers, function (wrap) {
+      backupHtml(wrap);
+      wrap.setAttribute(ATTR_PRICE, '1');
+      wrap.classList.remove('bogo-free-ui-hide');
+
+      hideAll(
+        wrap.querySelectorAll(
+          '.cart-item__old-price, [data-item-original-price-display]',
+        ),
+      );
+
+      var finals = wrap.querySelectorAll('[data-item-final-price-display]');
+      if (finals.length) {
+        setTextAll(finals, unitMoney);
+      } else {
+        var dds = wrap.querySelectorAll('dd.price');
+        if (dds.length) dds[dds.length - 1].textContent = unitMoney;
+      }
+    });
+
+    var totals = row.querySelectorAll('.cart-item-total');
+    Array.prototype.forEach.call(totals, function (total) {
+      backupHtml(total);
+      total.setAttribute(ATTR_PRICE, '1');
+      total.setAttribute('data-price', String(buyItem.originalLinePrice));
+      total.setAttribute(
+        'data-original-price',
+        String(buyItem.originalLinePrice),
+      );
+      var value = total.querySelector(
+        '.cart-item-value, [data-item-price-with-quantity-display]',
+      );
+      if (value) value.textContent = lineMoney;
+      else total.textContent = lineMoney;
+    });
+  }
+
   function ensureDetailsGetHost(row) {
     var details = row.querySelector('.cart-item__details');
     if (!details) return null;
@@ -471,6 +736,16 @@
     row.setAttribute(ATTR_FREE_ROW, '1');
     row.removeAttribute(ATTR_BUY_ROW);
 
+    var theme = rowTheme(row);
+    if (theme === 'ella-drawer') {
+      applyEllaDrawerGet(row, freeItem, config);
+      return;
+    }
+    if (theme === 'ella-page') {
+      applyEllaPageGet(row, freeItem, config);
+      return;
+    }
+
     var compareUnit = formatMoney(freeItem.originalPrice, config.moneyFormat);
     var compareLine = formatMoney(freeItem.originalLinePrice, config.moneyFormat);
     var zeroHtml = formatMoney(0, config.moneyFormat);
@@ -508,6 +783,16 @@
   function applyBuyToRow(row, buyItem, config) {
     row.setAttribute(ATTR_BUY_ROW, '1');
     row.removeAttribute(ATTR_FREE_ROW);
+
+    var theme = rowTheme(row);
+    if (theme === 'ella-drawer') {
+      applyEllaDrawerBuy(row, buyItem, config);
+      return;
+    }
+    if (theme === 'ella-page') {
+      applyEllaPageBuy(row, buyItem, config);
+      return;
+    }
 
     var unitMoney = formatMoney(buyItem.originalPrice, config.moneyFormat);
     var lineMoney = formatMoney(buyItem.originalLinePrice, config.moneyFormat);
@@ -555,6 +840,11 @@
     var injected = row.querySelectorAll('[data-bogo-details-price="1"]');
     Array.prototype.forEach.call(injected, function (node) {
       if (node.parentNode) node.parentNode.removeChild(node);
+    });
+    // Clear hide flags left on Ella old-price nodes outside restored hosts.
+    var hidden = row.querySelectorAll('.bogo-free-ui-hide');
+    Array.prototype.forEach.call(hidden, function (node) {
+      node.classList.remove('bogo-free-ui-hide');
     });
   }
 
@@ -733,6 +1023,12 @@
       document.querySelector('cart-drawer'),
       document.getElementById('CartDrawer'),
       document.querySelector('cart-notification'),
+      // Ella theme cart surfaces
+      document.querySelector('.previewCart'),
+      document.querySelector('.previewCartList'),
+      document.querySelector('.cart-list'),
+      document.getElementById('halo-cart-sidebar'),
+      document.querySelector('[data-cart-sidebar]'),
       document.querySelector('main'),
       document.body,
     ].filter(Boolean);
