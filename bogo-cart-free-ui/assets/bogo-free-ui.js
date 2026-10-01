@@ -545,34 +545,22 @@
     priceRoot.setAttribute('data-price', String(buyItem.originalPrice));
     priceRoot.setAttribute('data-original-price', String(buyItem.originalPrice));
 
-    var saving = priceRoot.querySelector('.previewCartItem-saving-price');
-    if (saving) {
-      hideAll(
-        saving.querySelectorAll(
-          '.before-discount-price, [data-item-original-price-display], s',
-        ),
-      );
-      var finalPrice = saving.querySelector(
-        '.discounted-price, [data-item-final-price-display]',
-      );
-      if (finalPrice) {
-        finalPrice.classList.remove('bogo-free-ui-hide');
-        finalPrice.textContent = unitMoney;
-      } else {
-        saving.textContent = unitMoney;
-      }
-    } else {
-      var priceSpan = priceRoot.querySelector('.price');
-      if (priceSpan) {
-        var existing = priceSpan.querySelector(
-          '[data-item-final-price-display], .discounted-price',
-        );
-        if (existing) existing.textContent = unitMoney;
-        else priceSpan.textContent = unitMoney;
-      } else {
-        priceRoot.textContent = unitMoney;
-      }
+    // Ella paints .discounted-price / .previewCartItem-saving-price in sale red.
+    // Rebuild as regular (non-sale) markup so Buy X matches full-price items.
+    var msrp = priceRoot.querySelector('.msrp-wrapper');
+    var msrpHtml = msrp ? msrp.outerHTML : '';
+
+    var priceSpan = priceRoot.querySelector('.price');
+    if (!priceSpan) {
+      priceSpan = document.createElement('span');
+      priceSpan.className = 'price';
+      priceRoot.appendChild(priceSpan);
     }
+    priceSpan.innerHTML =
+      '<span data-item-final-price-display="">' +
+      unitMoney +
+      msrpHtml +
+      '</span>';
   }
 
   /**
@@ -641,19 +629,14 @@
       wrap.setAttribute(ATTR_PRICE, '1');
       wrap.classList.remove('bogo-free-ui-hide');
 
-      hideAll(
-        wrap.querySelectorAll(
-          '.cart-item__old-price, [data-item-original-price-display]',
-        ),
-      );
-
-      var finals = wrap.querySelectorAll('[data-item-final-price-display]');
-      if (finals.length) {
-        setTextAll(finals, unitMoney);
-      } else {
-        var dds = wrap.querySelectorAll('dd.price');
-        if (dds.length) dds[dds.length - 1].textContent = unitMoney;
-      }
+      // Drop sale/discounted markup so unit price uses Ella's regular color.
+      var msrp = wrap.querySelector('.msrp-wrapper');
+      var msrpHtml = msrp ? msrp.outerHTML : '';
+      wrap.innerHTML =
+        '<span class="price price--end" data-item-final-price-display="">' +
+        unitMoney +
+        '</span>' +
+        msrpHtml;
     });
 
     var totals = row.querySelectorAll('.cart-item-total');
