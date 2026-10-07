@@ -754,7 +754,9 @@ export function buildBogoDiscountCandidates(input) {
     return [];
   }
 
-  const buyUnits = expandCartUnits(
+  // Products and collections share the same path: match, then exclusive
+  // buy/get assignment (so one unit is never both X and Y), then floor split.
+  const {buyUnits, getUnits} = allocateExclusiveBogoUnits(
     input.cart.lines,
     merchandise =>
       merchandiseMatchesSelection(
@@ -764,10 +766,6 @@ export function buildBogoDiscountCandidates(input) {
         config.buyVariantIds,
         'buy',
       ),
-    config.buyPurchaseType,
-  );
-  const getUnits = expandCartUnits(
-    input.cart.lines,
     merchandise =>
       merchandiseMatchesSelection(
         merchandise,
@@ -776,7 +774,11 @@ export function buildBogoDiscountCandidates(input) {
         config.getVariantIds,
         'get',
       ),
+    config.buyPurchaseType,
     config.getPurchaseType,
+    config.buyQuantity,
+    config.getQuantity,
+    config.maxUsesPerOrder,
   );
 
   if (buyUnits.length < config.buyQuantity || getUnits.length < config.getQuantity) {
